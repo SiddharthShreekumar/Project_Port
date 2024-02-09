@@ -133,29 +133,35 @@ Additionally provide the ranking for the categories based on their ISU %age.
 The report will include 3 key fields : Category, ISU%, RankOrder
 */
 with temp as
-(
-select 
-campaign_name, category,sum(`quantity_sold(before_promo)`) as "Total_quantity_sold(before_promo)",
-				sum(`quantity_sold(after_promo)`) as "Total_quantity_sold(after_promo)"
+( -- this CTE is for required columns, revised Quantity for BOGOF, and data on basis of product level
+select 	e.campaign_id,
+		p.product_code,
+        e.promo_type,
+        p.category,
+		e.`quantity_sold(before_promo)`,
+		e.`quantity_sold(after_promo)`,
+	case
+		when promo_type = "BOGOF" then `quantity_sold(after_promo)`*2
+		else `quantity_sold(after_promo)`
+	end "quantity_sold(after_promo)_revised"
 from fact_events as e
 inner join
-dim_campaigns as c
-on e.campaign_id = e.campaign_id 
-inner join 
 dim_products as p
-on e.product_code = p.product_code 
-group by campaign_name,category
-) , temp1 as
-( -- this temp filter out the DIWALI campaign records and calculated ISU%
+on e.product_code = p.product_code
+where e.campaign_id = "CAMP_DIW_01"
+) ,
+temp2 as (-- this CTE is for aggreageting value and creating ISU% with required columns only
 select category,
-		((((`Total_quantity_sold(after_promo)`)-(`Total_quantity_sold(before_promo)`)) 
-			/ (`Total_quantity_sold(before_promo)`)) * 100) as "ISU%" -- this is for ISU% calculation
+		sum(`quantity_sold(before_promo)`) as "Total_quantity_sold(before_promo)",
+		sum(`quantity_sold(after_promo)_revised`) as "Total_quantity_sold(after_promo)",
+        ( (sum(`quantity_sold(after_promo)_revised`) - sum(`quantity_sold(before_promo)`) )/sum(`quantity_sold(before_promo)`)) as "ISU%" 
 from temp
-where campaign_name = "Diwali"
+group by category
 )
-select category, concat(round(`ISU%`,2)," %") as `ISU%`, rank() over(order by temp1.`ISU%` desc) as rankorder
-from temp1
-order by temp1.`ISU%` desc;
+
+select category,concat(round(`ISU%`*100,2),"%") as "ISU%",
+dense_rank() over(order by `ISU%` desc) -- Ranking on basis of ISU% from largest to smallest
+from temp2;
 
 -- ----------------------------------------------------------------------------------------------------------------
 
